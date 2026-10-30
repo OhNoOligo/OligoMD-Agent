@@ -499,3 +499,57 @@ def clashes(structure: Structure, toleranz: float = 0.4, nur_schwer: bool = True
             })
     treffer.sort(key=lambda t: -t["ueberlappung"])
     return treffer[:max_treffer]
+
+
+# ---------- Schreiben ----------
+
+def _pdb_atom_line(serial: int, atom: Atom) -> str:
+    """Eine ATOM-Zeile, spaltengenau nach PDB-Format Version 3."""
+    name = atom.name
+    # Namen mit bis zu drei Zeichen beginnen in Spalte 14, vierstellige in 13
+    feld = f"{name:<4s}" if len(name) >= 4 else f" {name:<3s}"
+    art = "HETATM" if atom.resname.strip().upper() in set(ION_CHARGES) | WATER else "ATOM  "
+    x, y, z = atom.xyz
+    return (
+        f"{art}{serial % 100000:5d} {feld}{' ':1s}{atom.resname:>3s} "
+        f"{(atom.chain or ' '):1s}{atom.resnum % 10000:4d}{(atom.icode or ' '):1s}   "
+        f"{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {atom.element:>2s}"
+    )
+
+
+def write_pdb(structure: Structure, ziel: Path, ohne_wasserstoff: bool = False,
+              kommentar: str = "") -> Path:
+    """Schreibt die Struktur als PDB, mit TER zwischen den Ketten.
+
+    tleap erkennt an den TER-Zeilen, wo eine Kette endet, und wählt danach die
+    richtigen Endgruppen (z. B. DT5 statt DT). Ohne TER baut es eine
+    durchgehende Kette und verknüpft Dinge, die nicht zusammengehören.
+
+    `ohne_wasserstoff` ist der Normalfall vor tleap: Die Wasserstoffe der
+    Eingabedatei heißen oft anders als im Kraftfeld; tleap setzt sie selbst neu.
+    """
+    ziel = Path(ziel)
+    ziel.parent.mkdir(parents=True, exist_ok=True)
+    zeilen = []
+    if kommentar:
+        for stueck in kommentar.splitlines():
+            zeilen.append(f"REMARK   1 {stueck[:68]}")
+    serial = 1
+    letzte_kette: str | None = None
+    letztes: Atom | None = None
+    for atom in structure.atoms:
+        if ohne_wasserstoff and atom.is_hydrogen:
+            continue
+        if letzte_kette is not None and atom.chain != letzte_kette:
+            zeilen.append(f"TER   {serial % 100000:5d}      {letztes.resname:>3s} "
+                          f"{letztes.chain:1s}{letztes.resnum % 10000:4d}")
+            serial += 1
+        zeilen.append(_pdb_atom_line(serial, atom))
+        serial += 1
+        letzte_kette, letztes = atom.chain, atom
+    if letztes is not None:
+        zeilen.append(f"TER   {serial % 100000:5d}      {letztes.resname:>3s} "
+                      f"{letztes.chain:1s}{letztes.resnum % 10000:4d}")
+    zeilen.append("END")
+    ziel.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    return ziel

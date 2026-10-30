@@ -53,8 +53,23 @@ class BoxConfig(BaseModel):
 
 
 class ExtraIon(BaseModel):
+    """Ein Ion, das zusätzlich in die Lösung kommt, z. B. katalytisches Mg2+.
+
+    Entweder eine feste Zahl oder eine Konzentration. Die Konzentration ist der
+    ehrlichere Weg, weil sie nicht von der Boxgröße abhängt; die Zahl ergibt
+    sich dann aus der Wassermenge.
+    """
     ion: str
-    anzahl: int = Field(ge=1)
+    anzahl: Optional[int] = Field(None, ge=1)
+    mol_l: Optional[float] = Field(None, gt=0, le=1.0)
+
+    @model_validator(mode="after")
+    def _genau_eins(self) -> "ExtraIon":
+        if (self.anzahl is None) == (self.mol_l is None):
+            raise ValueError(
+                f"Ion {self.ion}: Gib entweder 'anzahl' oder 'mol_l' an, nicht beides und nicht keins."
+            )
+        return self
 
 
 class IonConfig(BaseModel):

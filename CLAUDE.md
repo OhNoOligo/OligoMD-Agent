@@ -39,12 +39,13 @@ oligomd/      der deterministische Kern
   gates.py      Prüfpunkte
   tools.py      externe Programme finden und aufrufen
   doctor.py     Umgebung prüfen
-  prepare.py    Struktur → solvatisiertes System      (Phase 1)
+  run.py        Lauf-Ordner, eingefrorene Konfiguration, Berichte
+  prepare.py    Struktur → solvatisiertes System (tleap)
+  simulate.py   Minimierung, Äquilibrierung, Produktion (OpenMM)
   params.py     modXNA / antechamber / tleap          (Phase 2)
   qm.py         Anbindung an ORCA-Ergebnisse          (Phase 2)
-  simulate.py   OpenMM                                (Phase 1)
   analyze.py    MDAnalysis                            (Phase 3)
-  report.py     Bericht je Lauf
+  report.py     Bericht je Lauf                       (Phase 3)
 agent/        dünne @tool-Hüllen um die Module oben    (Phase 4)
 runs/         je Lauf ein Ordner, nicht im Repository
 ```
@@ -80,6 +81,26 @@ runs/         je Lauf ein Ordner, nicht im Repository
   Watson-Crick-Paarung einen Fehler. Leichte Kontakte einer experimentellen
   Struktur sind eine Warnung, erst eine Überlappung ab `schwere_ueberlappung_a`
   hält an.
+
+## Simulation
+
+- **Planen und Ausführen sind getrennt.** `plan_erstellen` und `waehle_plattform`
+  rechnen nur und werden getestet; alles mit OpenMM steckt in Funktionen, die
+  es erst dort importieren.
+- Die **Äquilibrierung läuft mit höchstens 2 fs**, auch wenn die Produktion 4 fs
+  benutzt: Solange Restraints wirken und sich die Box setzt, ist der kleine
+  Zeitschritt die sichere Wahl.
+- Die Produktion schreibt **Prüfpunkte** und kann fortgesetzt werden
+  (`simulieren` ohne `--neu`). Lange Läufe überstehen so einen Abbruch.
+
+## Ionen und Ladung
+
+- **Zusatzionen kommen vor dem Ausgleich in die Box.** Zehn Mg2+ bringen +20
+  mit; wer erst neutralisiert und sie danach hineinwirft, hat eine geladene Box
+  und damit unsinnige Elektrostatik unter periodischen Randbedingungen.
+  `gegenionen()` rechnet das aus, `system.neutral` prüft es nach.
+- Wasser wird über die **Sauerstoffatome** gezählt, nicht über Restnummern:
+  Die laufen im PDB-Format bei 9999 um.
 
 ## Benutzertexte
 

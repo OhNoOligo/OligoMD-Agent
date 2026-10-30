@@ -65,3 +65,16 @@ def test_pruefe_meldet_kaputte_konfiguration(tmp_path, capsys):
     }), encoding="utf-8")
     assert main(["pruefe", "--system", str(system), "--protokoll", str(protokoll)]) == 1
     assert "struktur" in capsys.readouterr().err
+
+
+def test_laeufe_zeigt_stand(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["laeufe"]) == 0
+    assert "kein Lauf" in capsys.readouterr().out
+
+
+def test_simulieren_ohne_lauf_meldet_sich(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs").mkdir()
+    assert main(["simulieren"]) == 1
+    assert "noch kein Lauf" in capsys.readouterr().err

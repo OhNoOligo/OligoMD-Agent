@@ -5,9 +5,10 @@ Bausteinen. Gebaut für DNAzym-RNA-Komplexe: Struktur vorbereiten, Kraftfeld
 zuweisen, simulieren, auswerten – reproduzierbar und mit harten Prüfpunkten
 zwischen den Schritten. Darüber liegt später eine dünne Agenten-Schicht.
 
-**Stand: Phase 0 (Gerüst und Prüfpunkte).** Konfiguration, Strukturprüfung und
-Umgebungstest laufen, auch gegen die echte NMR-Struktur 7PDU. Simulation,
-Parametrisierung und Agent kommen in den nächsten Phasen.
+**Stand: Phase 1 (Pipeline für den unmodifizierten Komplex).** Konfiguration,
+Strukturprüfung, Systembau mit tleap und die Simulation mit OpenMM stehen,
+jeweils mit Prüfpunkten dazwischen. Parametrisierung der Modifikation und die
+Agenten-Schicht kommen als Nächstes.
 
 ## Grundidee
 
@@ -84,9 +85,21 @@ ORCA Studio unter Windows, die Ergebnisse werden als Dateien übergeben.
 # Was steckt in der Strukturdatei? (PDB oder PDBML, auch gezippt)
 python -m oligomd info eingaben/7pdu.xml.gz
 
-# Struktur und Konfiguration gegen die Prüfpunkte halten
-python -m oligomd pruefe --system config/system.yaml --protokoll config/protocol.yaml
+# Struktur und Konfiguration gegen die Prüfpunkte halten, ohne etwas anzulegen
+python -m oligomd pruefe
+
+# in WSL2: Lauf anlegen und das System bauen (tleap) -> prmtop und inpcrd
+python -m oligomd vorbereiten --name 7pdu-referenz
+
+# in Windows: rechnen (OpenMM auf der Grafikkarte)
+python -m oligomd simulieren
+
+# Welche Läufe gibt es und wie weit sind sie?
+python -m oligomd laeufe
 ```
+
+`simulieren` setzt an einem Prüfpunkt fort, wenn es einen gibt; mit `--neu`
+fängt es von vorn an. Ein langer Lauf übersteht so einen Abbruch.
 
 `pruefe` gibt 0 zurück, wenn alles besteht, 2 bei einem blockierenden Prüfpunkt
 und 1, wenn die Konfiguration selbst kaputt ist. Mit `--json` kommt alles
@@ -108,9 +121,26 @@ Die Konfiguration wehrt sich gegen typische Fehler, zum Beispiel gegen einen
 Zeitschritt von 4 fs ohne Wasserstoff-Massen-Umverteilung oder gegen eine
 Äquilibrierung, die mit festgehaltenem Solut endet.
 
+## Der Lauf-Ordner
+
+Jeder Lauf liegt unter `runs/<datum>_<name>/` und beschreibt sich selbst:
+
+```text
+runs/2026-10-30_7pdu-referenz/
+├─ konfiguration/      system.yaml und protocol.yaml, eingefroren
+├─ vorbereitet/        eingabe.pdb, leap.in, tleap.log, system.prmtop, system.inpcrd
+├─ simulation/         minimiert.pdb, produktion.dcd, produktion.csv, produktion.chk
+├─ berichte/           vorbereiten.json, simulieren.json
+└─ logbuch.txt
+```
+
+Die Konfiguration wird beim Anlegen hineinkopiert. Änderst du danach
+`config/system.yaml`, bleibt der Lauf unberührt. Ein Lauf wird nie
+überschrieben; gleicher Name ergibt einen zweiten Ordner.
+
 ## Prüfpunkte
 
-Stand Phase 0, alle in `oligomd/gates.py`:
+Alle in `oligomd/gates.py`, `oligomd/prepare.py` und `oligomd/simulate.py`:
 
 | ID | Prüft | Bei Verstoß |
 |---|---|---|
@@ -120,6 +150,15 @@ Stand Phase 0, alle in `oligomd/gates.py`:
 | `struktur.ladung` | Gesamtladung bestimmbar | Warnung, wenn Sonderreste offen sind |
 | `struktur.kollisionen` | Kein Atompaar überlappt deutlich | Fehler ab 0,5 Å, darunter Warnung |
 | `struktur.wasserstoffe` | Wasserstoffe vorhanden | Warnung |
+| `system.tleap` | tleap ohne Abbruch | Fehler |
+| `system.parameter` | Kein Rest ohne Kraftfeldparameter | Fehler |
+| `system.dateien` | prmtop und inpcrd geschrieben | Fehler |
+| `system.neutral` | Box trägt keine Restladung | Fehler |
+| `system.wasser` | Wasserbox gefüllt | Fehler |
+| `simulation.laeuft` | Messwerte vorhanden | Fehler |
+| `simulation.energie` | Energie endlich, kein NaN | Fehler |
+| `simulation.temperatur` | Mittlere Temperatur im Sollbereich | Fehler |
+| `simulation.dichte` | Dichte zwischen 0,9 und 1,15 g/ml | Fehler |
 
 Einstellbar sind nur Schwellen, und auch die nur in engen Grenzen
 (`GateSettings`). Die Prüfpunkte selbst stehen im Code.
@@ -145,13 +184,25 @@ Bei 7PDU heißt das: Kette A sind die DNA-Reste 1 bis 33, Kette B die RNA-Reste
 | Phase | Inhalt | Stand |
 |---|---|---|
 | 0 | Gerüst, Konfiguration, Strukturprüfung, `doctor` | **fertig** |
-| 1 | Pipeline für den unmodifizierten Komplex bis zur Produktion | offen |
+| 1 | Pipeline für den unmodifizierten Komplex bis zur Produktion | **fertig** |
 | 2 | Parameter für die Modifikation (ORCA + modXNA + AmberTools) | offen |
 | 3 | Auswertung (MDAnalysis) | offen |
 | 4 | Agenten-Schicht (Claude Agent SDK) | offen |
 | 5 | Reihenuntersuchung mehrerer Modifikationen | offen |
 
 Nach Phase 2 gibt es verwertbare Ergebnisse, auch ohne Agent.
+
+## Ionen und Ladung
+
+Die Ladung einer Box muss null sein, sonst wird die Elektrostatik unter
+periodischen Randbedingungen unsinnig. Dabei zählen **Zusatzionen mit**: 16 Mg²⁺
+bringen +32 mit, also braucht ein Solut mit −50 nur noch 18 Gegenionen statt 50.
+OligoMD rechnet das aus, schreibt die Zahlen ins tleap-Skript und prüft
+hinterher nach, was tleap gemeldet hat.
+
+Zusatzionen lassen sich als feste Zahl (`anzahl`) oder als Konzentration
+(`mol_l`) angeben. Die Konzentration ist der ehrlichere Weg, weil sie nicht von
+der Boxgröße abhängt.
 
 ## Entwicklung
 

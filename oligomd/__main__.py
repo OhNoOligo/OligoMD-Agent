@@ -1,9 +1,12 @@
 """Kommandozeile: python -m oligomd <befehl>
 
 Befehle in Phase 0:
-  doctor   Umgebung prüfen
-  pruefe   Struktur und Konfiguration gegen die Prüfpunkte halten
-  info     Was steckt in einer PDB-Datei
+  doctor       Umgebung prüfen
+  info         Was steckt in einer Strukturdatei
+  pruefe       Struktur und Konfiguration gegen die Prüfpunkte halten
+  vorbereiten  Lauf anlegen, System bauen (tleap): prmtop und inpcrd
+  simulieren   Minimierung, Äquilibrierung, Produktion (OpenMM)
+  laeufe       Welche Läufe es gibt und wie weit sie sind
 """
 
 from __future__ import annotations
@@ -17,6 +20,71 @@ from .config import ConfigError, load_run
 from .doctor import als_text, report
 from .gates import GateSettings, StructureContext, check_structure
 from .structure import StructureError, inventory, models_in, net_charge, read_structure
+
+
+def cmd_vorbereiten(args) -> int:
+    from .prepare import PrepareError, vorbereiten
+    from .run import Run, RunError
+    try:
+        lauf = Run.neu(args.name, Path(args.system), Path(args.protokoll))
+    except (ConfigError, RunError) as exc:
+        print(f"FEHLER: {exc}", file=sys.stderr)
+        return 1
+    print(f"Lauf: {lauf.ordner}")
+    try:
+        bericht = vorbereiten(lauf)
+    except (PrepareError, RunError, StructureError) as exc:
+        print(f"FEHLER: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(bericht.als_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(bericht.als_text())
+        print()
+        print("Bestanden. Weiter mit: python -m oligomd simulieren" if bericht.ok
+              else "NICHT bestanden. Die Pipeline hält hier an.")
+    return 0 if bericht.ok else 2
+
+
+def cmd_simulieren(args) -> int:
+    from .run import Run, RunError
+    from .simulate import SimulateError, simulieren
+    try:
+        lauf = Run.oeffnen(Path(args.lauf)) if args.lauf else Run.letzter()
+    except (ConfigError, RunError) as exc:
+        print(f"FEHLER: {exc}", file=sys.stderr)
+        return 1
+    print(f"Lauf: {lauf.ordner}")
+    try:
+        bericht = simulieren(lauf, fortsetzen=not args.neu)
+    except (SimulateError, RunError) as exc:
+        print(f"FEHLER: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(bericht.als_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(bericht.als_text())
+        print("\nBestanden." if bericht.ok else "\nNICHT bestanden.")
+    return 0 if bericht.ok else 2
+
+
+def cmd_laeufe(args) -> int:
+    from .run import RUNS, Run
+    basis = Path(args.ordner)
+    if not basis.is_dir():
+        print(f"Unter {basis} liegt noch kein Lauf.")
+        return 0
+    zeilen = []
+    for pfad in sorted(p for p in basis.iterdir() if p.is_dir()):
+        try:
+            lauf = Run.oeffnen(pfad)
+        except Exception:
+            continue
+        schritte = [f"{name}: {'fertig' if lauf.schritt_fertig(name) else 'offen'}"
+                    for name in ("vorbereiten", "simulieren")]
+        zeilen.append(f"{pfad.name:40s} {'  '.join(schritte)}")
+    print("\n".join(zeilen) if zeilen else f"Unter {basis} liegt noch kein Lauf.")
+    return 0
 
 
 def cmd_doctor(args) -> int:
@@ -106,6 +174,24 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--modell", type=int, default=1)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_info)
+
+    p = unter.add_parser("vorbereiten", help="Lauf anlegen und System mit tleap bauen")
+    p.add_argument("--name", default="lauf", help="Name des Lauf-Ordners")
+    p.add_argument("--system", default="config/system.yaml")
+    p.add_argument("--protokoll", default="config/protocol.yaml")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_vorbereiten)
+
+    p = unter.add_parser("simulieren", help="Minimierung, Äquilibrierung, Produktion")
+    p.add_argument("--lauf", default=None, help="Lauf-Ordner; ohne Angabe der letzte")
+    p.add_argument("--neu", action="store_true",
+                   help="von vorn beginnen statt an einem Prüfpunkt fortsetzen")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_simulieren)
+
+    p = unter.add_parser("laeufe", help="Welche Läufe es gibt und wie weit sie sind")
+    p.add_argument("--ordner", default="runs")
+    p.set_defaults(func=cmd_laeufe)
 
     p = unter.add_parser("pruefe", help="Struktur gegen die Prüfpunkte halten")
     p.add_argument("--system", default="config/system.yaml")
