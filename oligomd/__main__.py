@@ -16,7 +16,7 @@ from pathlib import Path
 from .config import ConfigError, load_run
 from .doctor import als_text, report
 from .gates import GateSettings, StructureContext, check_structure
-from .structure import StructureError, inventory, models_in, net_charge, read_pdb
+from .structure import StructureError, inventory, models_in, net_charge, read_structure
 
 
 def cmd_doctor(args) -> int:
@@ -29,7 +29,7 @@ def cmd_doctor(args) -> int:
 def cmd_info(args) -> int:
     pfad = Path(args.pdb)
     try:
-        struktur = read_pdb(pfad, args.modell)
+        struktur = read_structure(pfad, args.modell)
     except StructureError as exc:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 1
@@ -63,7 +63,7 @@ def cmd_pruefe(args) -> int:
     if not pdb.is_absolute():
         pdb = Path(args.system).resolve().parent.parent / pdb
     try:
-        struktur = read_pdb(pdb, lauf.system.struktur.modell)
+        struktur = read_structure(pdb, lauf.system.struktur.modell)
     except StructureError as exc:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 1

@@ -1,0 +1,37 @@
+# Conda-Umgebung für natives Windows: nur die Simulation.
+#
+#   conda env create -f environment-windows.yml
+#   conda activate oligomd-win
+#
+# Warum zwei Umgebungen?
+#   AmberTools und modXNA laufen nur unter Linux, also in WSL2 (environment.yml).
+#   Die brauchen aber keine Grafikkarte.
+#   OpenMM läuft nativ unter Windows und kommt dort über OpenCL an eine
+#   AMD-Karte heran. Unter WSL2 sieht OpenMM eine AMD-Karte in der Regel nicht.
+#
+# Arbeitsteilung:
+#   WSL2    Struktur vorbereiten, Parameter bauen, Topologie erzeugen (CPU)
+#   Windows minimieren, äquilibrieren, Produktion rechnen (GPU über OpenCL)
+#
+# Beide Umgebungen sehen denselben Lauf-Ordner; unter WSL2 liegt er unter
+# /mnt/c/... und unter Windows unter C:\...
+name: oligomd-win
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+
+  - openmm>=8.3
+  - openmmforcefields>=0.14
+  - pdbfixer>=1.10
+
+  - mdanalysis>=2.7
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+
+  - rdkit>=2024.03
+  - pyyaml
+  - pydantic>=2
+  - pytest

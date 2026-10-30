@@ -68,23 +68,32 @@ def check_tools() -> list[Finding]:
     return befunde
 
 
+#: Rechenplattformen von OpenMM, nach Tauglichkeit sortiert
+SCHNELLE_PLATTFORMEN = ("CUDA", "HIP", "OpenCL")
+
+
 def check_openmm_platforms() -> list[Finding]:
-    """Welche Rechenplattformen OpenMM sieht. Ohne GPU wird es nichts."""
+    """Welche Rechenplattformen OpenMM sieht.
+
+    NVIDIA fährt über CUDA. Bei AMD ist OpenCL der verlässliche Weg; HIP gibt es,
+    ist aber heikel. Nur CPU reicht für ein solvatisiertes DNAzym nicht.
+    """
     try:
         import openmm
     except Exception:
         return [Finding("OpenMM-Plattformen", "fehlt",
-                        "OpenMM ist nicht installiert", 1, "GPU-Beschleunigung")]
+                        "OpenMM ist nicht installiert", 1,
+                        "NVIDIA: CUDA. AMD: OpenCL (unter nativem Windows). CPU ist zu langsam.")]
     namen = [openmm.Platform.getPlatform(i).getName()
              for i in range(openmm.Platform.getNumPlatforms())]
-    schnell = [n for n in namen if n in ("CUDA", "HIP", "OpenCL")]
-    return [Finding(
-        "OpenMM-Plattformen",
-        "ok" if schnell else "fehlt",
-        ", ".join(namen) if namen else "keine",
-        1,
-        "CUDA wäre ideal; nur CPU ist für dieses System zu langsam",
-    )]
+    schnell = [n for n in namen if n in SCHNELLE_PLATTFORMEN]
+    if schnell:
+        zweck = f"nutzbar: {', '.join(schnell)}"
+    else:
+        zweck = ("Nur CPU. Für ein solvatisiertes DNAzym zu langsam. Bei AMD: OpenMM unter "
+                 "nativem Windows installieren (environment-windows.yml), dort gibt es OpenCL.")
+    return [Finding("OpenMM-Plattformen", "ok" if schnell else "fehlt",
+                    ", ".join(namen) if namen else "keine", 1, zweck)]
 
 
 def report(max_phase: int = 4) -> tuple[list[Finding], bool]:

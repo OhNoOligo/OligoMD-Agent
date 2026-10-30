@@ -56,12 +56,30 @@ runs/         je Lauf ein Ordner, nicht im Repository
   die Tests von ORCA Studio ohne ORCA laufen. Externe Programme werden in Tests
   durch kleine Skripte ersetzt.
 
-## Umgebung
+## Umgebung: zwei Hälften, weil die Hardware es erzwingt
 
-- Alles rund um MD läuft in **WSL2 (Ubuntu)**, conda-Umgebung aus `environment.yml`.
+- **WSL2 (Ubuntu)**, `environment.yml`: AmberTools, modXNA, Struktur vorbereiten,
+  Parameter bauen. Braucht keine Grafikkarte.
+- **Natives Windows**, `environment-windows.yml`: OpenMM für die Simulation.
+  Die Zielmaschine hat eine **AMD-Karte**. Unter WSL2 sieht OpenMM die in der
+  Regel nicht; nativ unter Windows erreicht es sie über **OpenCL**. HIP gibt es,
+  ist aber heikel (passende ROCm/HIP-SDK-Version nötig).
+- Beide Hälften sehen denselben Lauf-Ordner (`/mnt/c/...` bzw. `C:\...`).
+  Deshalb: **keine absoluten Pfade in Lauf-Dateien**, alles relativ zum Lauf-Ordner.
 - **ORCA Studio bleibt auf nativem Windows.** Quantenchemische Ergebnisse werden
   als Dateien übergeben, es gibt keine direkte Kopplung der beiden Projekte.
 - `python -m oligomd doctor` prüft die Umgebung und ist der Abnahmetest für Phase 0.
+
+## Strukturdateien
+
+- `structure.read_structure` liest **PDB und PDBML (.xml/.xml.gz)**, beides auch
+  gezippt. Von der RCSB kommt PDBML; mmCIF kann es noch nicht.
+- Es gelten die **auth_\***-Felder, also die Nummerierung aus der Veröffentlichung.
+- Kollisionsprüfung: Zwei Atome, die beide eine Wasserstoffbrücke bilden können
+  (N, O, F, S), dürfen sich bis `hbond_min` nähern. Sonst meldet jede
+  Watson-Crick-Paarung einen Fehler. Leichte Kontakte einer experimentellen
+  Struktur sind eine Warnung, erst eine Überlappung ab `schwere_ueberlappung_a`
+  hält an.
 
 ## Benutzertexte
 

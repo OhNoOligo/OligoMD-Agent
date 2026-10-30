@@ -62,24 +62,47 @@ def test_ladung_wird_berichtet(duplex_pdb):
     assert ladung.details["ladung"] == -3   # 5 Reste, 2 davon am 5'-Ende ohne Phosphat
 
 
-def test_kollision_blockiert_und_toleranz_wirkt(duplex_pdb, tmp_path):
+def test_leichter_kontakt_warnt_nur(duplex_pdb, tmp_path):
+    """Experimentelle Strukturen haben enge Kontakte. Die dürfen nicht blockieren."""
     ziel = read_pdb(duplex_pdb).residue("A", 1).atom("C1'")
     x, y, z = ziel.xyz
-    text = duplex_pdb.read_text(encoding="utf-8").replace(
-        "END\n", pdb_line(900, "C1", "LIG", "C", 1, (x + 2.6, y, z), "C") + "\nEND\n")
-    pfad = tmp_path / "clash.pdb"
-    pfad.write_text(text, encoding="utf-8")
+    pfad = tmp_path / "leicht.pdb"
+    pfad.write_text(duplex_pdb.read_text(encoding="utf-8").replace(
+        "END\n", pdb_line(900, "C1", "LIG", "C", 1, (x + 2.8, y, z), "C") + "\nEND\n"),
+        encoding="utf-8")
+    bericht = check_structure(ctx_fuer(pfad, ketten=("A", "B", "C"),
+                                       erlaubte_sonderreste={"LIG"}))
+    assert bericht.ok, bericht.als_text()
+    kollision = next(r for r in bericht.ergebnisse if r.id == "struktur.kollisionen")
+    assert kollision.status == "warnung" and kollision.details["schwer"] == 0
 
-    streng = check_structure(ctx_fuer(pfad, ketten=("A", "B", "C"),
-                                      erlaubte_sonderreste={"LIG"}))
-    assert not streng.ok
-    assert "Å" in next(f for f in streng.fehler if f.id == "struktur.kollisionen").meldung
 
-    # Grosszuegigere Toleranz laesst denselben Abstand durch
-    locker = check_structure(ctx_fuer(
-        pfad, ketten=("A", "B", "C"), erlaubte_sonderreste={"LIG"},
-        einstellungen=GateSettings(kollision_toleranz_a=0.8)))
-    assert locker.ok, locker.als_text()
+def test_schwere_ueberlappung_blockiert(duplex_pdb, tmp_path):
+    ziel = read_pdb(duplex_pdb).residue("A", 1).atom("C1'")
+    x, y, z = ziel.xyz
+    pfad = tmp_path / "schwer.pdb"
+    pfad.write_text(duplex_pdb.read_text(encoding="utf-8").replace(
+        "END\n", pdb_line(900, "C1", "LIG", "C", 1, (x + 1.5, y, z), "C") + "\nEND\n"),
+        encoding="utf-8")
+    bericht = check_structure(ctx_fuer(pfad, ketten=("A", "B", "C"),
+                                       erlaubte_sonderreste={"LIG"}))
+    assert not bericht.ok
+    fehler = next(f for f in bericht.fehler if f.id == "struktur.kollisionen")
+    assert "Å" in fehler.meldung and fehler.details["schwer"] >= 1
+
+
+def test_wasserstoffbruecken_gelten_nicht_als_kollision(duplex_pdb, tmp_path):
+    """Eine Watson-Crick-Paarung liegt bei 2,7 bis 3,0 Å und ist kein Fehler."""
+    ziel = read_pdb(duplex_pdb).residue("A", 1).atom("N1")
+    x, y, z = ziel.xyz
+    pfad = tmp_path / "hbond.pdb"
+    pfad.write_text(duplex_pdb.read_text(encoding="utf-8").replace(
+        "END\n", pdb_line(901, "N3", "LIG", "C", 1, (x + 2.8, y, z), "N") + "\nEND\n"),
+        encoding="utf-8")
+    bericht = check_structure(ctx_fuer(pfad, ketten=("A", "B", "C"),
+                                       erlaubte_sonderreste={"LIG"}))
+    kollision = next(r for r in bericht.ergebnisse if r.id == "struktur.kollisionen")
+    assert kollision.status == "ok", kollision.meldung
 
 
 def test_schwellen_haben_grenzen():
@@ -87,7 +110,9 @@ def test_schwellen_haben_grenzen():
     with pytest.raises(ValueError):
         GateSettings(kollision_toleranz_a=5.0)
     with pytest.raises(ValueError):
-        GateSettings(kollisionen_erlaubt=10_000)
+        GateSettings(schwere_ueberlappung_a=0.01)
+    with pytest.raises(ValueError):
+        GateSettings(schwere_ueberlappung_a=99.0)
 
 
 def test_abgestuerzter_pruefpunkt_gilt_als_fehler():

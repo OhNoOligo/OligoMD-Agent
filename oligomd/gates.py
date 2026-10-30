@@ -25,8 +25,10 @@ class GateSettings(BaseModel):
     """Die einzigen Stellschrauben. Grenzen bewusst eng."""
     kollision_toleranz_a: float = Field(0.4, ge=0.2, le=0.8,
                                         description="Å unter der VdW-Summe, ab der es eine Kollision ist")
-    kollisionen_erlaubt: int = Field(0, ge=0, le=10,
-                                     description="geduldete Kollisionen, normalerweise 0")
+    schwere_ueberlappung_a: float = Field(
+        0.5, ge=0.3, le=1.5,
+        description="Ab dieser Überlappung (Å unter der Grenze) ist es eine echte Kollision "
+                    "und kein Messartefakt. Experimentelle NMR-Strukturen liegen typisch unter 0,4 Å.")
     rmsd_grenze_a: float = Field(8.0, ge=2.0, le=20.0,
                                  description="RMSD, ab dem die Struktur als davongelaufen gilt")
     torsion_abweichung_kj: float = Field(4.0, ge=1.0, le=20.0,
@@ -197,16 +199,34 @@ def gate_charge(ctx: StructureContext) -> GateResult:
 
 @gate("struktur.kollisionen", "Keine Atomüberlappungen")
 def gate_clashes(ctx: StructureContext) -> GateResult:
-    treffer = clashes(ctx.structure, ctx.einstellungen.kollision_toleranz_a)
-    erlaubt = ctx.einstellungen.kollisionen_erlaubt
-    if len(treffer) > erlaubt:
-        schlimmste = treffer[0]
+    """Echte Überlappungen halten an, leichte Kontakte sind nur ein Hinweis.
+
+    Experimentelle Strukturen, NMR zumal, haben fast immer ein paar enge
+    Kontakte von ein bis drei Zehntel Ångström. Die räumt die Minimierung als
+    Erstes weg. Ein eingebauter Rest, der nicht hineinpasst, überlappt dagegen
+    um ein halbes Ångström und mehr.
+    """
+    grenze = ctx.einstellungen.schwere_ueberlappung_a
+    treffer = clashes(ctx.structure, ctx.einstellungen.kollision_toleranz_a, max_treffer=200)
+    schwer = [t for t in treffer if t["ueberlappung"] >= grenze]
+    if schwer:
+        s = schwer[0]
         return GateResult(
             "struktur.kollisionen", "Keine Atomüberlappungen", "fehler",
-            f"{len(treffer)} Atompaar(e) überlappen, erlaubt sind {erlaubt}. "
-            f"Am engsten: {schlimmste['a']} und {schlimmste['b']} mit "
-            f"{schlimmste['abstand']} Å statt mindestens {schlimmste['grenze']} Å.",
-            {"anzahl": len(treffer), "paare": treffer[:20]},
+            f"{len(schwer)} Atompaar(e) überlappen um mindestens {grenze} Å. "
+            f"Am schlimmsten: {s['a']} und {s['b']} mit {s['abstand']} Å statt "
+            f"mindestens {s['grenze']} Å. Das räumt keine Minimierung weg; "
+            "prüfe die Struktur oder die Stelle, an der du etwas eingebaut hast.",
+            {"schwer": len(schwer), "leicht": len(treffer) - len(schwer), "paare": schwer[:20]},
+        )
+    if treffer:
+        s = treffer[0]
+        return GateResult(
+            "struktur.kollisionen", "Keine Atomüberlappungen", "warnung",
+            f"{len(treffer)} leichte Kontakte, der engste {s['a']} / {s['b']} mit "
+            f"{s['abstand']} Å ({s['ueberlappung']} Å zu eng). Für eine experimentelle "
+            "Struktur normal; die Minimierung räumt das weg.",
+            {"schwer": 0, "leicht": len(treffer), "paare": treffer[:20]},
         )
     return GateResult("struktur.kollisionen", "Keine Atomüberlappungen", "ok",
                       "Kein Atompaar kommt sich zu nah.")

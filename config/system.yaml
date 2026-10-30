@@ -1,16 +1,25 @@
 # Was gerechnet wird. Siehe oligomd/config.py für alle Felder und Grenzen.
 #
-# Dieses Beispiel beschreibt den unmodifizierten 10-23-DNAzym-RNA-Komplex (7PDU),
-# also den Referenzlauf aus Phase 1. Die Modifikation kommt erst in Phase 2 dazu.
+# 7PDU: vorkatalytischer Komplex des 10-23-DNAzyms mit seinem RNA-Substrat,
+# NMR-Struktur (Borggräfe et al., Nature 601, 144-149, 2022).
+#
+# Was in der Datei steht (geprüft mit "python -m oligomd info"):
+#   7 Modelle, je 1658 Atome, Wasserstoffe vorhanden
+#   Kette A  33 DNA-Reste,  Nummern 1-33   TTGGGGTAAGGCTCGCTACAACGAGGTGCATGT
+#   Kette B  19 RNA-Reste,  Nummern 34-52  ACAUGCACCGUUACCCCAA
+#   Kein Magnesium, kein Wasser in den Koordinaten
+#   Gesamtladung der Standardreste: -50
+#
+# Phase 1 rechnet diesen Komplex unmodifiziert. Das ist der Referenzlauf.
 
 struktur:
-  pdb: eingaben/7pdu.pdb
-  # NMR-Struktur: mehrere Modelle. Modell 1 ist die übliche Wahl; prüfe mit
-  # "python -m oligomd info eingaben/7pdu.pdb", wie viele es sind.
+  pdb: eingaben/7pdu.xml.gz
+  # NMR: 7 Modelle. Modell 1 ist der Startpunkt; für unabhängige Wiederholungen
+  # später andere Modelle als eigene Läufe rechnen.
   modell: 1
   ketten: [A, B]          # A = DNAzym, B = RNA-Substrat
-  entfernen: [HOH]        # kristallographisches/NMR-Wasser weg, die Box bringt eigenes
-  behalten_hetatm: []     # z. B. [MG], wenn die Struktur Magnesium enthält
+  entfernen: []           # die Datei enthält kein Wasser
+  behalten_hetatm: []     # und keine Ionen
 
 kraftfeld:
   dna: OL21               # aktuelles Amber-DNA-Kraftfeld
@@ -25,15 +34,23 @@ box:
   puffer_nm: 1.2
 
 ionen:
+  # -50 Ladung heißt: 50 Gegenionen allein zum Neutralisieren, dazu das Salz.
   neutralisieren_mit: K+
   salz_mol_l: 0.15
-  # Katalytisches Magnesium bewusst setzen, nicht raten. Wie viele und wohin,
-  # muss aus der Veröffentlichung zur Struktur kommen.
+  # Das 10-23-DNAzym braucht Mg2+. Die NMR-Koordinaten enthalten keins, also
+  # kennen wir die Bindestellen nicht aus dieser Datei. Zwei Wege:
+  #   a) Mg2+ nur als freie Ionen in der Lösung mitgeben und zusehen, wo es sich
+  #      von selbst anlagert (braucht lange Simulationen, aber keine Annahme)
+  #   b) gezielt an die in der Veröffentlichung beschriebenen Stellen setzen
+  # Solange das nicht entschieden ist, bleibt die Liste leer und der Lauf ist
+  # ein Referenzlauf ohne katalytisches Metall.
   zusaetzlich: []
   # zusaetzlich:
   #   - {ion: MG, anzahl: 2}
 
 # Phase 1 läuft ohne Modifikation.
+# Ziel für Phase 2 ist Kette A, Rest 23 (DG) - in der Zählung des katalytischen
+# Kerns das G14. Dessen O6 wird modifiziert.
 modifikation: null
 # modifikation:
 #   rest: {kette: A, nummer: 23}

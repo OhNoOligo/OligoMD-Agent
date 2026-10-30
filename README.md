@@ -6,8 +6,8 @@ zuweisen, simulieren, auswerten – reproduzierbar und mit harten Prüfpunkten
 zwischen den Schritten. Darüber liegt später eine dünne Agenten-Schicht.
 
 **Stand: Phase 0 (Gerüst und Prüfpunkte).** Konfiguration, Strukturprüfung und
-Umgebungstest laufen. Simulation, Parametrisierung und Agent kommen in den
-nächsten Phasen.
+Umgebungstest laufen, auch gegen die echte NMR-Struktur 7PDU. Simulation,
+Parametrisierung und Agent kommen in den nächsten Phasen.
 
 ## Grundidee
 
@@ -21,9 +21,19 @@ einer durch, hält die Pipeline an. Weder du noch der Agent können das abschalt
 Der Grund: Ein übergangener Prüfpunkt erzeugt keine Fehlermeldung, sondern eine
 Simulation, die sauber durchläuft und falsch ist.
 
-## Installation
+## Installation: zwei Umgebungen
 
-Die MD-Werkzeuge laufen nicht nativ unter Windows. Deshalb **WSL2**:
+Die Arbeit teilt sich auf zwei Hälften auf, weil kein System beides kann:
+
+| Wo | Wofür | Umgebung |
+|---|---|---|
+| **WSL2 (Ubuntu)** | Struktur vorbereiten, Parameter bauen (AmberTools, modXNA) | `environment.yml` |
+| **Natives Windows** | die Simulation auf der Grafikkarte (OpenMM) | `environment-windows.yml` |
+
+AmberTools läuft nicht unter Windows, braucht aber keine Grafikkarte. OpenMM
+läuft unter Windows und kommt dort an eine **AMD-Karte** heran, unter WSL2 in
+der Regel nicht. Beide Hälften sehen denselben Lauf-Ordner, unter WSL2 als
+`/mnt/c/...` und unter Windows als `C:\...`.
 
 ```bash
 # in WSL2 (Ubuntu)
@@ -31,6 +41,24 @@ conda env create -f environment.yml
 conda activate oligomd
 pip install -e .
 ```
+
+```powershell
+# in Windows (Miniforge-Eingabeaufforderung)
+conda env create -f environment-windows.yml
+conda activate oligomd-win
+pip install -e .
+```
+
+### AMD-Karte
+
+OpenMM kennt vier Rechenplattformen. Für AMD ist **OpenCL** der verlässliche
+Weg; den Treiber bringt die normale Radeon-Software mit. **HIP** ist schneller,
+verlangt aber ein passendes HIP-SDK und ist laut
+[OpenMM-Diskussionen](https://github.com/openmm/openmm/discussions/4933)
+wählerisch. Fang mit OpenCL an (`plattform: OpenCL` in `protocol.yaml`) und
+probiere HIP erst, wenn alles andere läuft.
+
+`python -m oligomd doctor` zeigt dir, welche Plattformen OpenMM bei dir sieht.
 
 **modXNA** (für modifizierte Nukleotide, ab Phase 2) wird getrennt installiert.
 Es ist ein BASH-Werkzeug und liegt nicht auf conda-forge:
@@ -53,8 +81,8 @@ ORCA Studio unter Windows, die Ergebnisse werden als Dateien übergeben.
 ## Benutzung
 
 ```bash
-# Was steckt in einer PDB-Datei?
-python -m oligomd info eingaben/7pdu.pdb
+# Was steckt in der Strukturdatei? (PDB oder PDBML, auch gezippt)
+python -m oligomd info eingaben/7pdu.xml.gz
 
 # Struktur und Konfiguration gegen die Prüfpunkte halten
 python -m oligomd pruefe --system config/system.yaml --protokoll config/protocol.yaml
@@ -90,11 +118,27 @@ Stand Phase 0, alle in `oligomd/gates.py`:
 | `struktur.fehlende_atome` | Keine Lücken in Standardnukleotiden | Fehler |
 | `struktur.unbekannte_reste` | Jeder Rest hat ein Kraftfeld oder ist angekündigt | Fehler |
 | `struktur.ladung` | Gesamtladung bestimmbar | Warnung, wenn Sonderreste offen sind |
-| `struktur.kollisionen` | Kein Atompaar unter der VdW-Grenze | Fehler |
+| `struktur.kollisionen` | Kein Atompaar überlappt deutlich | Fehler ab 0,5 Å, darunter Warnung |
 | `struktur.wasserstoffe` | Wasserstoffe vorhanden | Warnung |
 
 Einstellbar sind nur Schwellen, und auch die nur in engen Grenzen
 (`GateSettings`). Die Prüfpunkte selbst stehen im Code.
+
+Die Kollisionsprüfung kennt zwei Besonderheiten echter Strukturen: Atome, die
+beide eine **Wasserstoffbrücke** bilden können (N, O, F, S), dürfen sich bis
+2,2 Å nähern, sonst gälte jede Watson-Crick-Paarung als Fehler. Und **leichte
+Kontakte** bis 0,5 Å Überlappung sind nur eine Warnung, weil die Minimierung
+sie wegräumt. Die sieben Modelle von 7PDU liegen alle unter 0,35 Å.
+
+## Strukturdateien
+
+Gelesen werden **PDB** und **PDBML** (`.xml`, `.xml.gz`), beides auch gezippt.
+Von der [RCSB](https://www.rcsb.org/) lädst du am einfachsten die
+PDBML-Variante herunter. mmCIF kann das Programm noch nicht.
+
+Es gelten die `auth_*`-Felder, also die Nummerierung aus der Veröffentlichung.
+Bei 7PDU heißt das: Kette A sind die DNA-Reste 1 bis 33, Kette B die RNA-Reste
+34 bis 52.
 
 ## Phasen
 

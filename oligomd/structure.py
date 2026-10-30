@@ -8,6 +8,8 @@ irgendwo etwas.
 
 from __future__ import annotations
 
+import gzip
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +18,10 @@ import numpy as np
 from rdkit import Chem, RDLogger
 
 RDLogger.DisableLog("rdApp.*")
+
+#: Namensraum der PDBML-Dateien von der RCSB (…/7PDU.xml.gz)
+PDBML_NS = "{http://pdbml.pdb.org/schema/pdbx-v50.xsd}"
+XSI_NIL = "{http://www.w3.org/2001/XMLSchema-instance}nil"
 
 
 class StructureError(ValueError):
@@ -45,6 +51,10 @@ ION_CHARGES = {"MG": 2, "CA": 2, "ZN": 2, "MN": 2, "NA": 1, "K": 1, "LI": 1,
                "CL": -1, "BR": -1, "IOD": -1}
 
 WATER = {"HOH", "WAT", "H2O", "TIP3", "SOL"}
+
+#: Elemente, die Wasserstoffbrücken bilden. Zwei davon dürfen sich nahe kommen:
+#: eine Watson-Crick-Paarung liegt bei 2,7 bis 3,0 Å zwischen den Schweratomen.
+HBOND_ELEMENTS = {"N", "O", "F", "S"}
 
 
 def expected_atoms(resname: str, is_first_in_chain: bool) -> set[str] | None:
@@ -163,20 +173,137 @@ def _element_from(symbol: str, name: str) -> str:
     return stripped[:1].upper() if stripped else "X"
 
 
+def _suffixes(path: Path) -> list[str]:
+    return [s.lower() for s in Path(path).suffixes]
+
+
+def _read_text(path: Path) -> str:
+    """Datei lesen, .gz wird unterwegs ausgepackt."""
+    path = Path(path)
+    try:
+        if _suffixes(path)[-1:] == [".gz"]:
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as datei:
+                return datei.read()
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise StructureError(f"{path} ließ sich nicht lesen: {exc}") from None
+
+
+def is_pdbml(path: Path) -> bool:
+    """PDBML (XML) statt klassischem PDB? Erkennt auch .xml.gz."""
+    return ".xml" in _suffixes(path)
+
+
 def models_in(path: Path) -> int:
-    """Zahl der MODEL-Einträge; 1, wenn die Datei keine enthält."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    """Zahl der Modelle in der Datei; 1, wenn es keine Modelle gibt."""
+    path = Path(path)
+    if is_pdbml(path):
+        nummern = {n for n, _ in _pdbml_atoms(path)}
+        return max(len(nummern), 1)
+    text = _read_text(path)
     count = sum(1 for line in text.splitlines() if line.startswith("MODEL "))
     return max(count, 1)
 
 
+def read_structure(path: Path, modell: int = 1) -> Structure:
+    """PDB oder PDBML lesen, auch als .gz. Der Dateiname entscheidet."""
+    path = Path(path)
+    if is_pdbml(path):
+        return read_pdbml(path, modell)
+    if ".cif" in _suffixes(path) or ".mmcif" in _suffixes(path):
+        raise StructureError(
+            f"{path.name} ist mmCIF. Das liest OligoMD noch nicht. Lade die Struktur "
+            "von der RCSB als PDBML (.xml.gz) oder als PDB-Datei herunter."
+        )
+    return read_pdb(path, modell)
+
+
+# ---------- PDBML (XML von der RCSB) ----------
+
+def _text_of(element, tag: str) -> str | None:
+    kind = element.find(f"{PDBML_NS}{tag}")
+    if kind is None or kind.get(XSI_NIL) == "true":
+        return None
+    wert = (kind.text or "").strip()
+    return wert or None
+
+
+def _pdbml_atoms(path: Path):
+    """(Modellnummer, atom_site-Element) für jedes Atom, speicherschonend."""
+    path = Path(path)
+    opener = gzip.open if _suffixes(path)[-1:] == [".gz"] else open
+    try:
+        with opener(path, "rb") as datei:
+            for ereignis, element in ET.iterparse(datei, events=("end",)):
+                if element.tag != f"{PDBML_NS}atom_site":
+                    continue
+                nummer = _text_of(element, "pdbx_PDB_model_num") or "1"
+                yield int(nummer), element
+                element.clear()
+    except ET.ParseError as exc:
+        raise StructureError(f"{path.name} ist kein gültiges XML: {exc}") from None
+    except OSError as exc:
+        raise StructureError(f"{path} ließ sich nicht lesen: {exc}") from None
+
+
+def read_pdbml(path: Path, modell: int = 1) -> Structure:
+    """Ein Modell aus einer PDBML-Datei (…/7PDU.xml.gz von der RCSB).
+
+    Es gelten die auth_*-Felder, also die Nummerierung aus der Veröffentlichung,
+    nicht die internen label_*-Felder.
+    """
+    path = Path(path)
+    atoms: list[Atom] = []
+    gesehen: set[int] = set()
+    index = 0
+    for nummer, element in _pdbml_atoms(path):
+        gesehen.add(nummer)
+        if nummer != modell:
+            continue
+        altloc = _text_of(element, "label_alt_id")
+        if altloc not in (None, "A"):
+            continue  # nur die erste Alternativlage
+        try:
+            xyz = (float(_text_of(element, "Cartn_x")),
+                   float(_text_of(element, "Cartn_y")),
+                   float(_text_of(element, "Cartn_z")))
+        except (TypeError, ValueError):
+            raise StructureError(
+                f"{path.name}: Atom {_text_of(element, 'id')} hat keine lesbaren Koordinaten."
+            ) from None
+        name = _text_of(element, "auth_atom_id") or _text_of(element, "label_atom_id") or "?"
+        resnum = _text_of(element, "auth_seq_id") or _text_of(element, "label_seq_id")
+        atoms.append(Atom(
+            index=index,
+            name=name,
+            element=(_text_of(element, "type_symbol") or name[:1]).capitalize(),
+            chain=_text_of(element, "auth_asym_id") or _text_of(element, "label_asym_id") or " ",
+            resnum=int(resnum) if resnum else 0,
+            resname=(_text_of(element, "auth_comp_id")
+                     or _text_of(element, "label_comp_id") or "UNK"),
+            icode=_text_of(element, "pdbx_PDB_ins_code") or "",
+            xyz=xyz,
+        ))
+        index += 1
+
+    if not gesehen:
+        raise StructureError(f"{path.name} enthält keine atom_site-Einträge.")
+    if modell not in gesehen:
+        raise StructureError(
+            f"{path.name} enthält {len(gesehen)} Modell(e) "
+            f"({min(gesehen)} bis {max(gesehen)}), angefragt war Nummer {modell}."
+        )
+    if not atoms:
+        raise StructureError(f"{path.name} enthält keine Atome für Modell {modell}.")
+    return Structure(atoms, path, modell)
+
+
+# ---------- Klassisches PDB ----------
+
 def read_pdb(path: Path, modell: int = 1) -> Structure:
     """Liest genau ein Modell einer PDB-Datei. ATOM und HETATM, mit Wasserstoffen."""
     path = Path(path)
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        raise StructureError(f"{path} ließ sich nicht lesen: {exc}") from None
+    text = _read_text(path)
 
     gesamt = models_in(path)
     if modell < 1 or modell > gesamt:
@@ -333,8 +460,14 @@ def _neighbor_pairs(coords: np.ndarray, cutoff: float):
 
 
 def clashes(structure: Structure, toleranz: float = 0.4, nur_schwer: bool = True,
-            max_treffer: int = 50) -> list[dict]:
-    """Atompaare, die sich näher kommen als die Summe ihrer VdW-Radien minus Toleranz.
+            max_treffer: int = 50, hbond_min: float = 2.2) -> list[dict]:
+    """Atompaare, die sich zu nahe kommen.
+
+    Zwei Regeln, weil eine nicht reicht:
+    - Können beide Atome eine Wasserstoffbrücke bilden (N, O, F, S), gilt erst
+      ein Abstand unter `hbond_min` als Kollision. Sonst würde jede
+      Watson-Crick-Paarung als Fehler gemeldet.
+    - Sonst: die Summe der VdW-Radien minus `toleranz`.
 
     Atome desselben oder benachbarter Reste werden übersprungen: Dort sind kurze
     Abstände normal (kovalente Bindungen).
@@ -352,14 +485,17 @@ def clashes(structure: Structure, toleranz: float = 0.4, nur_schwer: bool = True
         a, b = atoms[i], atoms[j]
         if a.chain == b.chain and abs(a.resnum - b.resnum) <= 1:
             continue
-        grenze = radien[i] + radien[j] - toleranz
+        wasserstoffbruecke = a.element in HBOND_ELEMENTS and b.element in HBOND_ELEMENTS
+        grenze = hbond_min if wasserstoffbruecke else radien[i] + radien[j] - toleranz
         d = float(np.linalg.norm(coords[i] - coords[j]))
         if d < grenze:
             treffer.append({
                 "a": f"{a.resname} {a.chain}{a.resnum} {a.name}",
                 "b": f"{b.resname} {b.chain}{b.resnum} {b.name}",
                 "abstand": round(d, 2),
-                "grenze": round(grenze, 2),
+                "grenze": round(float(grenze), 2),
+                "ueberlappung": round(float(grenze) - d, 2),
+                "art": "wasserstoffbruecke" if wasserstoffbruecke else "kontakt",
             })
-    treffer.sort(key=lambda t: t["abstand"])
+    treffer.sort(key=lambda t: -t["ueberlappung"])
     return treffer[:max_treffer]

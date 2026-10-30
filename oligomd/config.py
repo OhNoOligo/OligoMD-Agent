@@ -130,7 +130,7 @@ class ProtocolConfig(BaseModel):
     aequilibrierung: list[EquilibrationStage] = Field(min_length=1)
     produktion: ProductionConfig
     zufallsstartwert: int = Field(42, description="damit zwei Läufe gleich ausgehen")
-    plattform: Literal["auto", "CUDA", "OpenCL", "CPU"] = "auto"
+    plattform: Literal["auto", "CUDA", "HIP", "OpenCL", "CPU"] = "auto"
 
     @model_validator(mode="after")
     def _ends_unrestrained(self) -> "ProtocolConfig":

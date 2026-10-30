@@ -30,9 +30,10 @@ def build_residue(resname: str, chain: str, resnum: int, origin: tuple[float, fl
 
     zeilen, serial = [], serial_start
     for i, name in enumerate(namen):
-        # 2 Å Raster: weit genug auseinander, damit nichts als Kollision zählt
-        versatz = (origin[0] + (i % 4) * 2.0, origin[1] + ((i // 4) % 4) * 2.0,
-                   origin[2] + (i // 16) * 2.0)
+        # 6 Å Raster: weit genug auseinander, damit nichts als Kollision zählt und
+        # Testatome eindeutig nur einem Nachbarn nahe kommen
+        versatz = (origin[0] + (i % 4) * 6.0, origin[1] + ((i // 4) % 4) * 6.0,
+                   origin[2] + (i // 16) * 6.0)
         zeilen.append(pdb_line(serial, name, resname, chain, resnum, versatz))
         serial += 1
     return zeilen, serial
@@ -41,7 +42,7 @@ def build_residue(resname: str, chain: str, resnum: int, origin: tuple[float, fl
 def build_pdb(reste: list[tuple[str, str, int]], modelle: int = 1,
               weglassen: dict[tuple[str, int], tuple[str, ...]] | None = None,
               extra: list[str] | None = None) -> str:
-    """PDB-Text aus (Restname, Kette, Nummer). Reste liegen 20 Å auseinander."""
+    """PDB-Text aus (Restname, Kette, Nummer). Reste liegen weit auseinander."""
     weglassen = weglassen or {}
     erste_je_kette: dict[str, int] = {}
     for resname, chain, resnum in reste:
@@ -53,7 +54,7 @@ def build_pdb(reste: list[tuple[str, str, int]], modelle: int = 1,
         zeilen = [f"MODEL     {modell:4d}"] if modelle > 1 else []
         serial = 1
         for k, (resname, chain, resnum) in enumerate(reste):
-            origin = (k * 20.0, ord(chain) * 40.0, modell * 0.0)
+            origin = (k * 60.0, (ord(chain) - ord("A")) * 300.0, 0.0)
             neu, serial = build_residue(
                 resname, chain, resnum, origin, serial,
                 erstes=(resnum == erste_je_kette[chain]),
