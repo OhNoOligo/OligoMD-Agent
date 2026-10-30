@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+# Läufe sind Ergebnisse, nicht Quelltext
+runs/*
+!runs/.gitkeep
+# Große Eingabedateien (PDB, Trajektorien) bleiben lokal
+eingaben/*
+!eingaben/.gitkeep
+*.dcd
+*.xtc
+*.nc
+*.prmtop
+*.rst7

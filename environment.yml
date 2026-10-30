@@ -1,0 +1,44 @@
+# Conda-Umgebung für OligoMD-Agent (WSL2 / Ubuntu).
+#
+#   conda env create -f environment.yml
+#   conda activate oligomd
+#
+# modXNA wird getrennt installiert (siehe README): es ist ein BASH-Werkzeug und
+# liegt nicht auf conda-forge.
+name: oligomd
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+
+  # MD-Maschine
+  - openmm>=8.3
+  - openmmforcefields>=0.14    # AMBER-Kraftfelder für OpenMM
+  - pdbfixer>=1.10             # fehlende Atome, Protonierung
+
+  # AmberTools: tleap, antechamber, parmchk2, pdb4amber, cpptraj
+  # Läuft nur unter Linux/macOS, deshalb WSL2.
+  - ambertools>=23
+
+  # Auswertung
+  - mdanalysis>=2.7
+  - mdtraj>=1.10
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+
+  # Chemie und Konfiguration
+  - rdkit>=2024.03
+  - pyyaml
+  - pydantic>=2
+
+  # Entwicklung
+  - pytest
+  - pytest-cov
+  - ruff
+
+  - pip
+  - pip:
+      # Agenten-Schicht, erst ab Phase 4 nötig
+      - claude-agent-sdk

@@ -1,0 +1,41 @@
+# Was gerechnet wird. Siehe oligomd/config.py für alle Felder und Grenzen.
+#
+# Dieses Beispiel beschreibt den unmodifizierten 10-23-DNAzym-RNA-Komplex (7PDU),
+# also den Referenzlauf aus Phase 1. Die Modifikation kommt erst in Phase 2 dazu.
+
+struktur:
+  pdb: eingaben/7pdu.pdb
+  # NMR-Struktur: mehrere Modelle. Modell 1 ist die übliche Wahl; prüfe mit
+  # "python -m oligomd info eingaben/7pdu.pdb", wie viele es sind.
+  modell: 1
+  ketten: [A, B]          # A = DNAzym, B = RNA-Substrat
+  entfernen: [HOH]        # kristallographisches/NMR-Wasser weg, die Box bringt eigenes
+  behalten_hetatm: []     # z. B. [MG], wenn die Struktur Magnesium enthält
+
+kraftfeld:
+  dna: OL21               # aktuelles Amber-DNA-Kraftfeld
+  rna: OL3                # aktuelles Amber-RNA-Kraftfeld
+  wasser: OPC
+  ionen: Joung-Cheatham   # muss zum Wassermodell passen
+  zusatz_frcmod: []       # ab Phase 2: Parameter der Modifikation
+  zusatz_lib: []
+
+box:
+  typ: oktaeder
+  puffer_nm: 1.2
+
+ionen:
+  neutralisieren_mit: K+
+  salz_mol_l: 0.15
+  # Katalytisches Magnesium bewusst setzen, nicht raten. Wie viele und wohin,
+  # muss aus der Veröffentlichung zur Struktur kommen.
+  zusaetzlich: []
+  # zusaetzlich:
+  #   - {ion: MG, anzahl: 2}
+
+# Phase 1 läuft ohne Modifikation.
+modifikation: null
+# modifikation:
+#   rest: {kette: A, nummer: 23}
+#   definition: config/residues/o6_beispiel.yaml
+#   name: G6X

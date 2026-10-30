@@ -1,0 +1,37 @@
+# Wie gerechnet wird. Siehe oligomd/config.py für Grenzen und Begründungen.
+
+minimierung:
+  schritte: 5000
+
+# Schrittweise auftauen: erst das Solut festhalten, dann lockern, dann frei.
+# Die letzte Stufe muss ohne Restraints laufen, sonst startet die Produktion
+# aus einer festgehaltenen Struktur (die Konfiguration prüft das).
+aequilibrierung:
+  - name: nvt_fest
+    ps: 100
+    temperatur_k: 300
+    restraints_kj_nm2: 1000
+  - name: npt_locker
+    ps: 500
+    temperatur_k: 300
+    druck_bar: 1.0
+    restraints_kj_nm2: 100
+  - name: npt_frei
+    ps: 1000
+    temperatur_k: 300
+    druck_bar: 1.0
+    restraints_kj_nm2: 0
+
+produktion:
+  ns: 100
+  zeitschritt_fs: 4       # nur mit hmr; ohne HMR höchstens 2 fs
+  hmr: true
+  temperatur_k: 300
+  druck_bar: 1.0
+  speichern_ps: 10
+
+# Gleicher Startwert = gleicher Lauf. Für unabhängige Wiederholungen ändern
+# und als eigenen Lauf ablegen, nicht den alten überschreiben.
+zufallsstartwert: 42
+
+plattform: auto           # auto | CUDA | OpenCL | CPU
